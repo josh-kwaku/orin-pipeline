@@ -1,0 +1,75 @@
+# Environment files - NEVER commit
+.env
+.env.local
+.env.*.local
+.env.production
+.env.development
+
+# API keys and secrets
+*.key
+*.pem
+secrets/
+
+# Large data files
+*.db
+*.sqlite
+data/lrclib.db
+data/lrclib.sqlite3
+lrclib.db
+lrclib.sqlite3
+
+
+# Audio files (too large for git)
+*.mp3
+*.opus
+*.wav
+*.m4a
+*.flac
+audio/
+snippets/
+
+# Model files
+*.bin
+*.onnx
+*.pt
+*.pth
+models/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+*.so
+.eggs/
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs (may contain sensitive info)
+*.log
+logs/
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Generated output
+output/
+
+# Data directory (contains databases)
+data/
