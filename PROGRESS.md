@@ -1,6 +1,6 @@
 # Orin Pipeline Progress
 
-Last Updated: 2026-01-12
+Last Updated: 2026-01-13
 
 ## Current Phase
 Phase 1: Recommendation Engine (Core AI)
@@ -17,6 +17,7 @@ Phase 1: Recommendation Engine (Core AI)
 - [x] Genre detection via LLM (all tracks)
 - [x] Curated playlist import (YouTube → LRCLib API → SQLite)
 - [x] CLI with subcommands (import-playlist, list-playlists, etc.)
+- [x] FastAPI REST API (Phase 1-2: stats, playlists, tracks, pipeline control, SSE)
 
 ## In Progress 🚧
 - [ ] Test genre feature with diverse tracks
@@ -24,9 +25,9 @@ Phase 1: Recommendation Engine (Core AI)
 - [ ] Validate recommendation quality
 
 ## Next Up 📋
+- [ ] React dashboard frontend (separate repo: orin-dashboard/)
 - [ ] Scale to 245k songs (batch processing)
 - [ ] Qdrant collection indexing at scale
-- [ ] Recommendation API design (FastAPI)
 - [ ] Quality metrics and testing
 
 ## Deferred ⏸

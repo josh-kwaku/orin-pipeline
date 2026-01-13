@@ -17,6 +17,7 @@ Read these files to understand the current state:
 3. **ISSUES.md** - Known bugs and gotchas
 4. **SESSION.md** - What was worked on last (if exists, may be empty)
 5. **README.md** - Quick project overview (optional, if you need setup info)
+6. **docs/API_PLAN.md** - If working on API or dashboard (optional)
 
 **Total reading time: <30 seconds**
 
@@ -133,6 +134,7 @@ When user says to wrap up:
 | `DECISIONS.md` | Technical choices | When making significant decision |
 | `ISSUES.md` | Bugs & gotchas | When discovered/resolved |
 | `sessions/` | Archive | End of session |
+| `docs/API_PLAN.md` | API/dashboard design | When API work continues |
 
 ---
 

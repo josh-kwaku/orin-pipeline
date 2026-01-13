@@ -2,6 +2,37 @@
 
 ---
 
+## 2026-01-13: FastAPI REST API
+
+**Context:** Need a web dashboard to orchestrate the pipeline instead of CLI
+**Decision:** FastAPI backend with SSE for real-time updates
+**Files:** `api/` directory (new)
+
+**Rationale:**
+- FastAPI is async - matches existing pipeline code
+- SSE is simpler than WebSockets for one-way progress updates
+- Built-in OpenAPI docs for easy testing
+- Frontend will be React + Vite in separate repo
+
+**Alternatives Considered:**
+- WebSockets: More complex, bidirectional not needed
+- Polling: Higher latency, more requests
+- GraphQL: Overkill for this use case
+
+**Implementation:**
+- `api/main.py` - FastAPI app with CORS for localhost:5173
+- `api/routes/` - stats, playlists, tracks, pipeline, search
+- `api/services/event_manager.py` - SSE broadcast to subscribers
+- `api/services/pipeline_runner.py` - Wraps pipeline with events
+- Full plan in `docs/API_PLAN.md`
+
+**Endpoints:**
+- GET /api/v1/health, /stats, /playlists, /tracks
+- POST /api/v1/playlists/import, /pipeline/start, /search
+- GET /api/v1/pipeline/events (SSE stream)
+
+---
+
 ## 2026-01-12: LRCLib Title Variation Matching
 
 **Context:** Playlist import failing to find lyrics for songs with featuring artists
