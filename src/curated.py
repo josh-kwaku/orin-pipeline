@@ -387,6 +387,15 @@ def import_playlist(
         # Parse artist and title
         artist, song_name = parse_video_title(video.title)
 
+        # If no artist from title, try using channel/uploader name
+        if not artist and song_name:
+            artist = video.uploader or ""
+            # Clean up YouTube auto-generated channel suffixes
+            if artist.endswith(" - Topic"):
+                artist = artist[:-8]  # Remove " - Topic"
+            if verbose and artist:
+                print(f"  Using channel as artist: {artist}")
+
         if not artist or not song_name:
             if verbose:
                 print(f"  ✗ Could not parse artist/title")

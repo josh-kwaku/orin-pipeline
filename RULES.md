@@ -120,6 +120,17 @@ OUTPUT_DIR=
 
 ---
 
+## 6. Session Management
+
+### Auto-Update SESSION.md
+- **Claude MUST update SESSION.md immediately after completing any task**
+- Update "Recent Changes" with what was done
+- Update "Files Modified" with any changed files
+- Keep updates concise (bullet points, not essays)
+- This ensures context is preserved for future sessions
+
+---
+
 ## Checklist Before Committing
 
 - [ ] No API keys in code
@@ -127,3 +138,4 @@ OUTPUT_DIR=
 - [ ] `.gitignore` is up to date
 - [ ] `.env.example` documents all required variables
 - [ ] No secrets in error messages or logs
+- [ ] SESSION.md updated with recent changes
