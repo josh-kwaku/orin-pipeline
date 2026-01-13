@@ -28,6 +28,7 @@ class EventManager:
         queue: asyncio.Queue = asyncio.Queue()
         async with self._lock:
             self._subscribers.append(queue)
+        print(f"[SSE] New subscriber. Total: {len(self._subscribers)}")
         return queue
 
     async def unsubscribe(self, queue: asyncio.Queue) -> None:
@@ -53,6 +54,8 @@ class EventManager:
             "type": event_type,
             "data": data,
         }
+
+        print(f"[SSE] Emitting {event_type} to {len(self._subscribers)} subscribers")
 
         async with self._lock:
             for queue in self._subscribers:
