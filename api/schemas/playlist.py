@@ -16,11 +16,18 @@ class PlaylistImportRequest(BaseModel):
 
 
 class PlaylistImportResponse(BaseModel):
-    """Response from playlist import."""
-    playlist_id: int
-    total_videos: int
-    imported: int
-    skipped: int
+    """Response from starting playlist import."""
+    task_id: str
+    message: str
+
+
+class ImportStatusResponse(BaseModel):
+    """Current import status."""
+    running: bool
+    task_id: Optional[str] = None
+    playlist_name: Optional[str] = None
+    current_track: Optional[dict] = None
+    progress: dict
     errors: list[str]
 
 

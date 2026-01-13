@@ -80,15 +80,26 @@ async def get_pipeline_status():
 @router.get("/pipeline/events")
 async def pipeline_events(request: Request):
     """
-    SSE endpoint for real-time pipeline events.
+    SSE endpoint for real-time events (pipeline and import).
 
-    Events:
+    Pipeline Events:
+    - pipeline_started: Pipeline started processing
     - track_start: New track being processed
     - track_complete: Track finished successfully
     - track_error: Track processing failed
     - pipeline_complete: All tracks processed
     - pipeline_stopped: Pipeline was stopped
     - pipeline_error: Fatal pipeline error
+
+    Import Events:
+    - import_fetching: Fetching playlist metadata
+    - import_started: Playlist fetched, processing tracks
+    - import_track_processing: Processing a track
+    - import_track_imported: Track successfully imported
+    - import_track_skipped: Track skipped
+    - import_complete: Import finished
+    - import_stopped: Import was stopped
+    - import_error: Fatal import error
     """
 
     async def event_generator():

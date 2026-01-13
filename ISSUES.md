@@ -7,11 +7,6 @@ Last Updated: 2026-01-13
 ### Dashboard: Indexed card shows zero
 The "Indexed" stats card on the dashboard always shows 0 even when segments have been indexed. Need to investigate the API response and dashboard component.
 
-### Dashboard: Pipeline UX loading state
-The pipeline page loading/progress UX is still not working properly. The session-based approach was implemented but needs further debugging to ensure smooth transitions between Starting → Running → Completed states.
-
----
-
 ## Gotchas & Quirks ⚠️
 
 ### yt-dlp Rate Limiting
@@ -27,4 +22,8 @@ BGE-M3 uses ~2GB VRAM. Unload after batch processing.
 
 ## Resolved ✓
 
-(None yet)
+### Dashboard: Pipeline UX loading state (2026-01-13)
+Fixed by adding proper state machine with explicit states (idle → connecting → starting → running → completed) and event-driven transitions via `pipeline_started` SSE event.
+
+### Dashboard: Import progress not visible (2026-01-13)
+Fixed by creating `ImportRunner` service with SSE events. Import now shows real-time progress with event log.

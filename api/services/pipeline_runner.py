@@ -81,6 +81,14 @@ class PipelineRunner:
 
         self.progress.total = total
 
+        # Emit pipeline_started event immediately (before background task)
+        await self.event_manager.emit("pipeline_started", {
+            "task_id": self.task_id,
+            "total_tracks": total,
+            "source": source,
+            "genre": genre,
+        })
+
         # Start processing in background
         self._task = asyncio.create_task(
             self._run(
@@ -195,13 +203,16 @@ class PipelineRunner:
                         if errors:
                             self.progress.skipped += 1
                             self.progress.errors.extend(errors)
+                            # Mark as failed so it's not retried automatically
+                            error_msg = "; ".join(errors)
+                            mark_processed(source, track.id, status="failed", error_message=error_msg)
                             await self.event_manager.emit("track_error", {
                                 "track_id": track.id,
                                 "errors": errors,
                             })
                         else:
-                            # Mark as processed
-                            mark_processed(source, track.id)
+                            # Mark as successfully processed
+                            mark_processed(source, track.id, status="success")
                             self.progress.processed += 1
                             await self.event_manager.emit("track_complete", {
                                 "track_id": track.id,
@@ -217,7 +228,10 @@ class PipelineRunner:
 
                 except Exception as e:
                     self.progress.skipped += 1
-                    self.progress.errors.append(f"{track.name}: {str(e)}")
+                    error_msg = f"{track.name}: {str(e)}"
+                    self.progress.errors.append(error_msg)
+                    # Mark as failed so it's not retried automatically
+                    mark_processed(source, track.id, status="failed", error_message=str(e))
                     await self.event_manager.emit("track_error", {
                         "track_id": track.id,
                         "error": str(e),

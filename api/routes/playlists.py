@@ -2,7 +2,7 @@
 Playlist management endpoints.
 """
 
-from fastapi import APIRouter, HTTPException, BackgroundTasks
+from fastapi import APIRouter, HTTPException
 
 from ..deps import CuratedDbPath
 from ..schemas.playlist import (
@@ -10,8 +10,10 @@ from ..schemas.playlist import (
     PlaylistImportResponse,
     PlaylistSummary,
     PlaylistListResponse,
+    ImportStatusResponse,
 )
-from src.curated import import_playlist, list_playlists
+from ..services.import_runner import import_runner
+from src.curated import list_playlists
 
 router = APIRouter()
 
@@ -45,26 +47,59 @@ async def import_youtube_playlist(
     curated_db: CuratedDbPath,
 ):
     """
-    Import a YouTube playlist.
+    Start importing a YouTube playlist.
 
-    This is a synchronous operation that may take a while for large playlists.
-    Consider using background tasks for production use.
+    Returns immediately with a task ID. Connect to /pipeline/events for real-time updates.
+
+    Events emitted:
+    - import_fetching: Starting to fetch playlist metadata
+    - import_started: Playlist fetched, processing tracks
+    - import_track_processing: Processing a track (parsing, searching lyrics)
+    - import_track_imported: Track successfully imported
+    - import_track_skipped: Track skipped (no lyrics, duplicate, etc.)
+    - import_complete: Import finished
+    - import_error: Fatal error during import
+    - import_stopped: Import was stopped by user
     """
     try:
-        result = import_playlist(
+        task_id, _ = await import_runner.start(
             playlist_url=request.url,
             genre=request.genre,
             db_path=curated_db,
             dry_run=request.dry_run,
-            verbose=False,  # Don't print to console
         )
 
         return PlaylistImportResponse(
-            playlist_id=result.playlist_id,
-            total_videos=result.total_videos,
-            imported=result.imported,
-            skipped=result.skipped,
-            errors=result.errors,
+            task_id=task_id,
+            message="Import started. Connect to /pipeline/events for progress updates.",
         )
+    except RuntimeError as e:
+        raise HTTPException(status_code=409, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/import/status", response_model=ImportStatusResponse)
+async def get_import_status():
+    """Get current import status."""
+    status = import_runner.get_status()
+
+    return ImportStatusResponse(
+        running=status["running"],
+        task_id=status["task_id"],
+        playlist_name=status["playlist_name"],
+        current_track=status["current_track"],
+        progress=status["progress"],
+        errors=status["errors"],
+    )
+
+
+@router.post("/import/stop")
+async def stop_import():
+    """Stop the currently running import."""
+    stopped = await import_runner.stop()
+
+    if stopped:
+        return {"stopped": True, "message": "Stop requested. Import will stop after current track."}
+    else:
+        return {"stopped": False, "message": "No import is currently running."}
