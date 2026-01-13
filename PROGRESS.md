@@ -18,6 +18,8 @@ Phase 1: Recommendation Engine (Core AI)
 - [x] Curated playlist import (YouTube → LRCLib API → SQLite)
 - [x] CLI with subcommands (import-playlist, list-playlists, etc.)
 - [x] FastAPI REST API (Phase 1-2: stats, playlists, tracks, pipeline control, SSE)
+- [x] React dashboard frontend (separate repo: orin-dashboard/)
+- [x] Real-time SSE progress for pipeline and playlist import
 
 ## In Progress 🚧
 - [ ] Test genre feature with diverse tracks
@@ -25,7 +27,6 @@ Phase 1: Recommendation Engine (Core AI)
 - [ ] Validate recommendation quality
 
 ## Next Up 📋
-- [ ] React dashboard frontend (separate repo: orin-dashboard/)
 - [ ] Scale to 245k songs (batch processing)
 - [ ] Qdrant collection indexing at scale
 - [ ] Quality metrics and testing

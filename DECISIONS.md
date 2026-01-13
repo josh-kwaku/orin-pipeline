@@ -2,6 +2,26 @@
 
 ---
 
+## 2026-01-13: Async Import with SSE Progress
+
+**Context:** Playlist import was synchronous - UI showed "Importing..." with no progress
+**Decision:** Background task with SSE events, matching pipeline pattern
+**Files:** `api/services/import_runner.py` (new), `api/routes/playlists.py`
+
+**Rationale:**
+- Reuses existing `event_manager` SSE infrastructure
+- Consistent UX between pipeline and import
+- Non-blocking - dashboard remains responsive during import
+- Real-time progress: fetching → started → track processing → complete
+
+**Implementation:**
+- `ImportRunner` class mirrors `PipelineRunner` pattern
+- Events: `import_fetching`, `import_started`, `import_track_processing`, `import_track_imported`, `import_track_skipped`, `import_complete`, `import_error`
+- Uses `asyncio.to_thread()` for blocking operations (yt-dlp, LRCLib API, SQLite)
+- Frontend connects to same `/pipeline/events` SSE endpoint
+
+---
+
 ## 2026-01-13: FastAPI REST API
 
 **Context:** Need a web dashboard to orchestrate the pipeline instead of CLI
