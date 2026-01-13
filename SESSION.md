@@ -1,47 +1,35 @@
-# Current Session: Pipeline & Import Loading UX Fix
+# Last Session: SSE Progress for Pipeline & Import
 
 Last Updated: 2026-01-13
 
-## Active Work
-- Fixed pipeline page loading/progress UX
-- Added real-time progress tracking for playlist import
+## What Was Done
+- Fixed pipeline page loading UX with proper state machine (idle → connecting → starting → running → completed)
+- Added `pipeline_started` SSE event from backend before processing begins
+- Created `ImportRunner` service for async playlist import with SSE progress
+- Updated Playlists page with real-time progress tracking and event log
 
-## Files Modified
+## Files Changed
 
 ### Backend
-- `api/services/pipeline_runner.py` - Added `pipeline_started` event emission
-- `api/services/import_runner.py` - **NEW** - Async import with SSE events
-- `api/routes/pipeline.py` - Updated SSE endpoint docs for import events
-- `api/routes/playlists.py` - Changed to async import with background task
-- `api/schemas/playlist.py` - Updated response types for async import
+- `api/services/import_runner.py` - NEW: Async import with SSE events
+- `api/services/pipeline_runner.py` - Added pipeline_started event
+- `api/routes/playlists.py` - Async import endpoint
+- `api/routes/pipeline.py` - Updated SSE docs
+- `src/pipeline_status.py` - Enhanced with success/failed/skipped tracking
 
 ### Frontend (orin-dashboard/)
-- `src/api/types.ts` - Added import event types, `StartPipelineResponse`, `ImportPlaylistResponse`
-- `src/api/client.ts` - Updated return types, added `stopImport`
-- `src/pages/Pipeline.tsx` - Rewrote with proper state machine
-- `src/pages/Playlists.tsx` - Added SSE progress tracking with event log
+- `src/pages/Pipeline.tsx` - State machine rewrite
+- `src/pages/Playlists.tsx` - SSE progress + event log
+- `src/api/types.ts` - Import event types
+- `src/api/client.ts` - Updated response types
 
-## Recent Changes
-
-### Pipeline Page
-- Added `pipeline_started` SSE event from backend (emitted before processing starts)
-- Replaced multiple boolean states with single `PipelineState` enum
-- State flow: idle → connecting → starting → running → completed/stopped/error
-- Event-driven transitions instead of polling
-
-### Playlist Import
-- Created `ImportRunner` service (similar to `PipelineRunner`)
-- Import now runs in background task, returns immediately
-- SSE events: `import_fetching`, `import_started`, `import_track_processing`, `import_track_imported`, `import_track_skipped`, `import_complete`, `import_stopped`, `import_error`
-- Frontend shows real-time progress: current track, imported/skipped counts
-- Import log shows each track as it's processed
-- Stop button to cancel mid-import
+## Current State
+- Dashboard and API are functional
+- Pipeline and import both show real-time progress via SSE
+- Commits pushed to both repos
 
 ## Next Steps
-- Test both pipeline and import with live servers
-- Verify events flow correctly through shared SSE endpoint
-
-## Context Notes
-- Both pipeline and import use the same `event_manager` for SSE
-- Single SSE endpoint `/pipeline/events` handles both event types
-- Frontend filters events by type prefix (`import_*` vs `track_*`/`pipeline_*`)
+- Test genre feature with diverse tracks
+- Process 100-1000 songs for quality testing
+- Validate recommendation quality
+- Fix "Indexed" stats card showing zero (see ISSUES.md)
