@@ -2,6 +2,7 @@
 FastAPI application factory and configuration.
 """
 
+import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -9,11 +10,18 @@ from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s | %(levelname)-8s | %(name)s | %(message)s",
+    datefmt="%H:%M:%S",
+)
+
 # Load environment variables before importing config-dependent modules
 env_path = Path(__file__).parent.parent / ".env"
 load_dotenv(env_path)
 
-from .routes import playlists, tracks, stats, pipeline, search
+from .routes import playlists, tracks, stats, pipeline, search, embed
 
 
 @asynccontextmanager
@@ -53,6 +61,7 @@ def create_app() -> FastAPI:
     app.include_router(tracks.router, prefix="/api/v1", tags=["tracks"])
     app.include_router(pipeline.router, prefix="/api/v1", tags=["pipeline"])
     app.include_router(search.router, prefix="/api/v1", tags=["search"])
+    app.include_router(embed.router, prefix="/api/v1", tags=["embed"])
 
     @app.get("/api/v1/health")
     async def health_check():

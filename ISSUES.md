@@ -1,6 +1,6 @@
 # Known Issues
 
-Last Updated: 2026-01-13
+Last Updated: 2026-01-14
 
 ## Active Bugs 🐛
 
@@ -21,6 +21,9 @@ BGE-M3 uses ~2GB VRAM. Unload after batch processing.
 ---
 
 ## Resolved ✓
+
+### Chat: Snippet audio playback not working (2026-01-14)
+Fixed by updating all 230 `snippet_url` values in Qdrant. Root cause: R2 bucket URL mismatch - snippets pointed to old bucket but files were in new bucket.
 
 ### Dashboard: Pipeline UX loading state (2026-01-13)
 Fixed by adding proper state machine with explicit states (idle → connecting → starting → running → completed) and event-driven transitions via `pipeline_started` SSE event.
