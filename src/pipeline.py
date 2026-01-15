@@ -16,6 +16,7 @@ Entry point loads .env before importing this module.
 """
 
 import json
+import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -28,7 +29,15 @@ from .audio import (
     log_skipped_song,
     slice_audio,
 )
-from .config import DURATION_TOLERANCE, LLM_PROVIDERS, OUTPUT_DIR, QDRANT_HOST, ensure_directories
+from .config import (
+    BATCH_SIZE_LLM,
+    DURATION_TOLERANCE,
+    ENABLE_BATCH_SEGMENTATION,
+    LLM_PROVIDERS,
+    OUTPUT_DIR,
+    QDRANT_HOST,
+    ensure_directories,
+)
 from .db import Track, get_track_by_id, get_tracks
 from .curated import get_curated_tracks, get_curated_track_count, CURATED_DB_PATH
 from .embedder import embed_text, get_device_info, unload_model
@@ -39,7 +48,12 @@ from .indexer import (
 )
 from .lrc_parser import parse_lrc, validate_segment_lines
 from .pipeline_status import mark_processed
-from .segmenter import segment_lyrics, validate_segments
+from .segmenter import (
+    BatchedSongResult,
+    segment_lyrics,
+    segment_lyrics_batch,
+    validate_segments,
+)
 from .storage import is_r2_configured, upload_snippet
 from . import logger
 
@@ -85,6 +99,7 @@ async def process_track(
     track: Track,
     dry_run: bool = False,
     verbose: bool = True,
+    segmentation_cache: Optional[dict[int, BatchedSongResult]] = None,
 ) -> tuple[int, list[str], Optional[dict]]:
     """
     Process a single track through the full pipeline.
@@ -93,6 +108,7 @@ async def process_track(
         track: Track from LRCLib database
         dry_run: If True, skip audio download and indexing
         verbose: If True, log detailed progress
+        segmentation_cache: Pre-computed segmentation results by track_id (from batch)
 
     Returns:
         Tuple of (segments_indexed, error_messages, segmentation_data)
@@ -182,42 +198,96 @@ async def process_track(
             logger.print_step("Skipping audio download", "dry run")
         audio_file = None
 
-    # 4. Segment lyrics via LLM
-    if verbose:
-        logger.print_step("Segmenting lyrics via LLM")
-    segmentation_result = await segment_lyrics(
-        lyrics=parsed_lrc.plain_lyrics,
-        title=track.name,
-        artist=track.artist_name,
-    )
+    # 4. Segment lyrics via LLM (use cache if available)
+    cached_result = segmentation_cache.get(track.id) if segmentation_cache else None
 
-    if not segmentation_result.success:
+    if cached_result is not None:
+        # Use pre-computed batch segmentation
         if verbose:
-            logger.print_error(f"Segmentation failed: {segmentation_result.error}")
-        if audio_file:
-            cleanup_audio_file(audio_file)
-        log_skipped_song(
-            track_id=track.id,
+            logger.print_step("Using cached segmentation", "from batch")
+
+        if cached_result.error or not cached_result.segments:
+            if verbose:
+                logger.print_error(f"Segmentation failed: {cached_result.error or 'no segments'}")
+            if audio_file:
+                cleanup_audio_file(audio_file)
+            log_skipped_song(
+                track_id=track.id,
+                title=track.name,
+                artist=track.artist_name,
+                lrc_duration=track.duration,
+                audio_duration=None,
+                drift=None,
+                reason="segmentation_failed",
+                error=cached_result.error or "no segments in batch result",
+            )
+            return 0, [f"Track {track.id}: Segmentation failed - {cached_result.error}"], None
+
+        # Extract from cached result
+        segments = cached_result.segments
+        genre = cached_result.genre
+        provider = "batch"
+
+        if verbose:
+            logger.print_success(
+                f"Found {len(segments)} segments "
+                f"via batch (genre: {genre})"
+            )
+    else:
+        # No cache - call LLM directly
+        if verbose:
+            logger.print_step("Segmenting lyrics via LLM")
+        segmentation_result = await segment_lyrics(
+            lyrics=parsed_lrc.plain_lyrics,
             title=track.name,
             artist=track.artist_name,
-            lrc_duration=track.duration,
-            audio_duration=None,
-            drift=None,
-            reason="segmentation_failed",
-            error=segmentation_result.error,
         )
-        return 0, [f"Track {track.id}: Segmentation failed - {segmentation_result.error}"], None
 
-    if verbose:
-        logger.print_success(
-            f"Found {len(segmentation_result.segments)} segments "
-            f"via {segmentation_result.provider} "
-            f"(genre: {segmentation_result.genre})"
-        )
+        if not segmentation_result.success:
+            # Check for rate limiting
+            if segmentation_result.retry_after_seconds is not None:
+                retry_mins = int(segmentation_result.retry_after_seconds // 60)
+                retry_secs = int(segmentation_result.retry_after_seconds % 60)
+                if verbose:
+                    logger.print_warning(
+                        f"Rate limited by LLM provider. "
+                        f"Please try again in {retry_mins}m {retry_secs}s"
+                    )
+                if audio_file:
+                    cleanup_audio_file(audio_file)
+                return 0, [f"Rate limited: retry in {retry_mins}m {retry_secs}s"], None
+
+            if verbose:
+                logger.print_error(f"Segmentation failed: {segmentation_result.error}")
+            if audio_file:
+                cleanup_audio_file(audio_file)
+            log_skipped_song(
+                track_id=track.id,
+                title=track.name,
+                artist=track.artist_name,
+                lrc_duration=track.duration,
+                audio_duration=None,
+                drift=None,
+                reason="segmentation_failed",
+                error=segmentation_result.error,
+            )
+            return 0, [f"Track {track.id}: Segmentation failed - {segmentation_result.error}"], None
+
+        # Extract from LLM result
+        segments = segmentation_result.segments
+        genre = segmentation_result.genre
+        provider = segmentation_result.provider
+
+        if verbose:
+            logger.print_success(
+                f"Found {len(segments)} segments "
+                f"via {provider} "
+                f"(genre: {genre})"
+            )
 
     # 5. Validate segments
     valid_segments, validation_errors = validate_segments(
-        segmentation_result.segments,
+        segments,
         parsed_lrc.total_lines,
     )
     errors.extend(validation_errors)
@@ -328,7 +398,7 @@ async def process_track(
             secondary_emotion=segment.secondary_emotion,
             energy=segment.energy,
             tone=segment.tone,
-            genre=segmentation_result.genre or "other",
+            genre=genre or "other",
             track_id=track.id,
         )
 
@@ -371,8 +441,8 @@ async def process_track(
             "album": track.album_name,
             "duration": track.duration,
             "total_lines": parsed_lrc.total_lines,
-            "genre": segmentation_result.genre,
-            "provider": segmentation_result.provider,
+            "genre": genre,
+            "provider": provider,
             "segments": [
                 {
                     "start_line": seg.start_line,
@@ -486,16 +556,80 @@ async def run_pipeline(
     if verbose:
         logger.print_success(f"Found {len(tracks)} tracks to process")
 
+    # Phase 1: Batch segmentation (if enabled)
+    segmentation_cache: dict[int, BatchedSongResult] = {}
+
+    if ENABLE_BATCH_SEGMENTATION and tracks:
+        if verbose:
+            logger.print_step("Phase 1: Batch segmentation", f"{len(tracks)} tracks in batches of {BATCH_SIZE_LLM}")
+
+        total_batches = (len(tracks) + BATCH_SIZE_LLM - 1) // BATCH_SIZE_LLM
+
+        for batch_num, batch_start in enumerate(range(0, len(tracks), BATCH_SIZE_LLM), 1):
+            batch = tracks[batch_start:batch_start + BATCH_SIZE_LLM]
+
+            if verbose:
+                logger.print_step(f"Batch {batch_num}/{total_batches}", f"{len(batch)} tracks")
+
+            # Pre-parse lyrics and filter valid tracks
+            songs_for_llm: list[tuple[str, str, str, int]] = []
+            for track in batch:
+                parsed = parse_lrc(track.synced_lyrics)
+                if parsed.total_lines >= 4:
+                    songs_for_llm.append((
+                        parsed.plain_lyrics,
+                        track.name,
+                        track.artist_name,
+                        track.id,
+                    ))
+
+            if songs_for_llm:
+                # Flush stdout to prevent Rich console buffering deadlock with async
+                sys.stdout.flush()
+                # Single LLM call for entire batch
+                batch_result = await segment_lyrics_batch(songs_for_llm)
+
+                # Check for rate limiting - stop gracefully if hit
+                if batch_result.retry_after_seconds is not None:
+                    retry_mins = int(batch_result.retry_after_seconds // 60)
+                    retry_secs = int(batch_result.retry_after_seconds % 60)
+                    if verbose:
+                        logger.print_warning(
+                            f"Rate limited by LLM provider. "
+                            f"Please try again in {retry_mins}m {retry_secs}s"
+                        )
+                    stats.errors.append(
+                        f"Rate limited: retry in {retry_mins}m {retry_secs}s"
+                    )
+                    # Return early - can't continue without segmentation
+                    return stats
+
+                # Cache results by track_id
+                for song_result in batch_result.song_results:
+                    segmentation_cache[song_result.track_id] = song_result
+
+                if verbose:
+                    success_count = sum(1 for r in batch_result.song_results if r.segments)
+                    logger.print_success(f"Segmented {success_count}/{len(songs_for_llm)} tracks")
+
+        if verbose:
+            logger.print_success(f"Phase 1 complete: {len(segmentation_cache)} tracks in cache")
+
     # Collect segmentation results for dry run
     segmentation_results: list[dict[str, object]] = []
 
-    # Process each track
+    # Phase 2: Process each track
     for i, track in enumerate(tracks, 1):
         try:
             if verbose:
                 logger.print_track_header(i, len(tracks), track.artist_name, track.name)
 
-            indexed, errors, seg_data = await process_track(track, dry_run=dry_run, verbose=verbose)
+            indexed, errors, seg_data = await process_track(
+                track,
+                dry_run=dry_run,
+                verbose=verbose,
+                segmentation_cache=segmentation_cache if ENABLE_BATCH_SEGMENTATION else None,
+            )
 
             if indexed > 0:
                 stats.tracks_processed += 1

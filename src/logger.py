@@ -21,7 +21,8 @@ from rich.progress import (
 from rich.table import Table
 
 
-console = Console()
+# Force terminal mode to prevent buffering issues with async code
+console = Console(force_terminal=True)
 
 
 # Progress bar for overall track processing

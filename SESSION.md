@@ -1,64 +1,71 @@
-# Current Session: UI Beautification + SnippetBubble Component
+# Current Session: Batch Segmentation for Groq Rate Limiting
 
 Last Updated: 2026-01-15
 
 ## What Was Done
 
-### 1. UI Redesign - Apple iOS Aesthetic
-Completely redesigned orin-chat-web with proper Apple design principles:
+### Implemented Batch Segmentation
+Reduced Groq API calls by 10x by batching multiple songs per LLM call.
 
-**Color System:**
-- Switched from harsh emerald to iOS blue (`#0a84ff`)
-- True black backgrounds with gray elevation hierarchy
-- Proper text color hierarchy (primary/secondary/tertiary)
+**Impact:**
+- 100 songs now requires 10 Groq calls instead of 100
+- ~26% token savings from shared prompt overhead
+- No dashboard changes needed (SSE events unchanged)
 
-**Typography:**
-- 17px base font size (Apple standard)
-- Inter font with proper weights
-- Refined spacing and line heights
+**Files Modified:**
 
-**Components:**
-- Solid colors instead of gradients
-- Subtle rounded corners (20px for bubbles, 12px for inputs)
-- Clean, minimal design throughout
+`src/segmenter.py`:
+- Added `BatchedSongResult` and `BatchSegmentationResult` dataclasses
+- Added `BATCHED_SEGMENTATION_PROMPT` template for multi-song format
+- Added `_build_batched_prompt()` function
+- Added `_parse_batched_response()` function with per-song error isolation
+- Added `segment_lyrics_batch()` async function
+- Updated `_call_groq()` and `_call_together()` to accept `max_tokens` parameter
 
-### 2. SnippetBubble Component - Creative Redesign
-Created a distinctive music snippet message component:
+`src/config.py`:
+- Added `ENABLE_BATCH_SEGMENTATION = True` toggle
 
-**Features:**
-- **Spinning Vinyl Disc** - Rotates when playing, stops smoothly on pause
-- **Lyrics as Hero** - Large italic quote styling with decorative quote mark
-- **Genre Color System** - 34 genres mapped to unique color palettes
-- **Ambient Glow** - Subtle color glow behind vinyl from genre
-- **Progress Bar** - Appears during playback
-- **Sender Alignment** - Right for own messages, left for received
+`src/pipeline.py`:
+- Added Phase 1: Batch segmentation before track loop
+- Modified `process_track()` to accept optional `segmentation_cache` parameter
+- Updated `run_pipeline()` for two-phase processing
 
-**Files Created:**
+## Architecture
+
 ```
-src/components/SnippetBubble/
-├── index.ts           # Exports
-├── genreColors.ts     # Genre → color mappings
-├── VinylDisc.tsx      # Animated vinyl SVG
-└── SnippetBubble.tsx  # Main component
+Phase 1 - Batch Segmentation:
+  For each batch of 10 tracks:
+    1. Parse LRC for all tracks
+    2. Filter valid tracks (≥4 lines)
+    3. ONE Groq call → segments for all 10
+    4. Cache results by track_id
+
+Phase 2 - Per-Track Processing:
+  For each track:
+    1. Get cached segmentation (or call LLM if not batched)
+    2. Download audio
+    3. Check version match
+    4. Slice → Upload → Embed segments
+    5. Index to Qdrant
+    → SSE events unchanged
 ```
 
-## All Files Modified
-- `package.json` - Added framer-motion
-- `src/index.css` - New Apple-inspired design system
-- `src/lib/animations.ts` - Animation utilities (created)
-- `src/lib/conversations.ts` - Fixed pre-existing type error
-- `src/pages/Login.tsx` - Simplified, clean design
-- `src/pages/Chats.tsx` - iOS-style list with avatars
-- `src/pages/Conversation.tsx` - Integrated SnippetBubble
-- `src/pages/NewChat.tsx` - Clean form design
-- `src/components/SnippetPicker.tsx` - Refined bottom sheet
-- `src/components/SnippetBubble/*` - New component (4 files)
+### Graceful Rate Limit Handling
+When Groq returns a 429 rate limit error:
+- Returns immediately (doesn't block waiting)
+- Shows friendly message: "Rate limited by LLM provider. Please try again in Xm Ys"
+- Exits cleanly so user knows when to retry
 
-## Build Status
-- All TypeScript errors resolved
-- Build passes cleanly
+**Implementation:**
+- Added `retry_after_seconds` field to `SegmentationResult` and `BatchSegmentationResult`
+- Catches `GroqRateLimitError` and extracts `retry-after` header
+- Pipeline checks for rate limit and stops gracefully with the retry time
 
 ## Next Steps
-- Add genre data to message storage for dynamic colors
-- Consider waveform visualization
-- Test on actual mobile devices
+- Test with `python -m src.cli --test 10` when rate limit resets (~16 minutes)
+- Can add Together.ai as backup provider in `LLM_PROVIDERS` config
+
+## Context Notes
+- Batch size: 10 songs (configurable via `BATCH_SIZE_LLM`)
+- Can disable batching via `ENABLE_BATCH_SEGMENTATION = False`
+- Fallback: if no cache hit, calls `segment_lyrics()` directly

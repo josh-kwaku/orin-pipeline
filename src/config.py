@@ -95,8 +95,11 @@ QDRANT_COLLECTION = "song_snippets"
 # ===================
 # Processing Settings
 # ===================
+# Batch segmentation (reduces Groq API calls by 10x)
+ENABLE_BATCH_SEGMENTATION = True
+
 # Batch sizes
-BATCH_SIZE_LLM = 10  # Songs per LLM batch
+BATCH_SIZE_LLM = 10  # Songs per LLM batch (when batch segmentation enabled)
 BATCH_SIZE_EMBED = 50  # Embeddings per batch
 BATCH_SIZE_INDEX = 100  # Qdrant upserts per batch
 
