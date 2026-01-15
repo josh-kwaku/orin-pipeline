@@ -84,6 +84,10 @@ async def pipeline_events(request: Request):
 
     Pipeline Events:
     - pipeline_started: Pipeline started processing
+    - batch_segmentation_started: Batch LLM segmentation phase started
+    - batch_segmentation_progress: Batch progress update
+    - batch_segmentation_complete: All batches segmented
+    - rate_limited: Hit LLM rate limit (includes retry_after_seconds)
     - track_start: New track being processed
     - track_complete: Track finished successfully
     - track_error: Track processing failed

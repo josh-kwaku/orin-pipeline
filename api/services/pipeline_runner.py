@@ -142,6 +142,9 @@ class PipelineRunner:
         from src.curated import get_curated_tracks, CURATED_DB_PATH
         from src.pipeline import process_track
         from src.db import Track
+        from src.config import ENABLE_BATCH_SEGMENTATION, BATCH_SIZE_LLM
+        from src.segmenter import segment_lyrics_batch, BatchedSongResult
+        from src.lrc_parser import parse_lrc
 
         try:
             # Get tracks
@@ -153,30 +156,95 @@ class PipelineRunner:
                     exclude_processed=not reprocess,
                 )
                 # Convert generator to list for counting
-                tracks = list(tracks_gen)
+                tracks_data = list(tracks_gen)
             else:
                 # TODO: Implement LRCLib source
-                tracks = []
+                tracks_data = []
 
-            self.progress.total = len(tracks)
+            self.progress.total = len(tracks_data)
 
-            for i, track_data in enumerate(tracks):
+            # Convert to Track objects
+            tracks = [
+                Track(
+                    id=td["id"],
+                    name=td["name"],
+                    artist_name=td["artist_name"],
+                    album_name=td.get("album_name"),
+                    duration=td["duration"],
+                    synced_lyrics=td["synced_lyrics"],
+                )
+                for td in tracks_data
+            ]
+
+            # Phase 1: Batch segmentation (reduces API calls by 10x)
+            segmentation_cache: dict[int, BatchedSongResult] = {}
+
+            if ENABLE_BATCH_SEGMENTATION and tracks:
+                await self.event_manager.emit("batch_segmentation_started", {
+                    "task_id": self.task_id,
+                    "total_tracks": len(tracks),
+                    "batch_size": BATCH_SIZE_LLM,
+                })
+
+                total_batches = (len(tracks) + BATCH_SIZE_LLM - 1) // BATCH_SIZE_LLM
+
+                for batch_num, batch_start in enumerate(range(0, len(tracks), BATCH_SIZE_LLM), 1):
+                    if self._stop_requested:
+                        break
+
+                    batch = tracks[batch_start:batch_start + BATCH_SIZE_LLM]
+
+                    # Pre-parse lyrics and filter valid tracks
+                    songs_for_llm: list[tuple[str, str, str, int]] = []
+                    for track in batch:
+                        parsed = parse_lrc(track.synced_lyrics)
+                        if parsed.total_lines >= 4:
+                            songs_for_llm.append((
+                                parsed.plain_lyrics,
+                                track.name,
+                                track.artist_name,
+                                track.id,
+                            ))
+
+                    if songs_for_llm:
+                        batch_result = await segment_lyrics_batch(songs_for_llm)
+
+                        # Check for rate limiting
+                        if batch_result.retry_after_seconds is not None:
+                            retry_mins = int(batch_result.retry_after_seconds // 60)
+                            retry_secs = int(batch_result.retry_after_seconds % 60)
+                            await self.event_manager.emit("rate_limited", {
+                                "task_id": self.task_id,
+                                "retry_after_seconds": batch_result.retry_after_seconds,
+                                "message": f"Rate limited. Please try again in {retry_mins}m {retry_secs}s",
+                            })
+                            # Stop pipeline gracefully
+                            return
+
+                        # Cache results by track_id
+                        for song_result in batch_result.song_results:
+                            segmentation_cache[song_result.track_id] = song_result
+
+                        await self.event_manager.emit("batch_segmentation_progress", {
+                            "task_id": self.task_id,
+                            "batch": batch_num,
+                            "total_batches": total_batches,
+                            "tracks_segmented": len(batch_result.song_results),
+                        })
+
+                await self.event_manager.emit("batch_segmentation_complete", {
+                    "task_id": self.task_id,
+                    "tracks_cached": len(segmentation_cache),
+                })
+
+            # Phase 2: Process each track
+            for i, track in enumerate(tracks):
                 if self._stop_requested:
                     await self.event_manager.emit("pipeline_stopped", {
                         "task_id": self.task_id,
                         "reason": "user_requested",
                     })
                     break
-
-                # Create Track object for curated source
-                track = Track(
-                    id=track_data["id"],
-                    name=track_data["name"],
-                    artist_name=track_data["artist_name"],
-                    album_name=track_data.get("album_name"),
-                    duration=track_data["duration"],
-                    synced_lyrics=track_data["synced_lyrics"],
-                )
 
                 self.current_track = {
                     "id": track.id,
@@ -190,17 +258,26 @@ class PipelineRunner:
                 await self.event_manager.emit("track_start", self.current_track)
 
                 try:
-                    # Process the track
+                    # Process the track with segmentation cache
                     if not dry_run:
                         indexed, errors, _ = await process_track(
                             track=track,
                             dry_run=dry_run,
                             verbose=False,
+                            segmentation_cache=segmentation_cache if ENABLE_BATCH_SEGMENTATION else None,
                         )
 
                         self.progress.segments_indexed += indexed
 
                         if errors:
+                            # Check if it's a rate limit error
+                            if any("Rate limited" in e for e in errors):
+                                await self.event_manager.emit("rate_limited", {
+                                    "task_id": self.task_id,
+                                    "message": errors[0],
+                                })
+                                return
+
                             self.progress.skipped += 1
                             self.progress.errors.extend(errors)
                             # Mark as failed so it's not retried automatically
