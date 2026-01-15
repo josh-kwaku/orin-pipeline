@@ -177,4 +177,14 @@ Claude:
 
 ---
 
+## Skills
+
+Reference these guides in `~/dev/orin/skills/` when performing specific tasks:
+
+| Skill | File | Use When |
+|-------|------|----------|
+| Git Push | `git-push.md` | Pushing commits to GitHub |
+
+---
+
 **Ready to start? Tell me what you'd like to work on!**
