@@ -1,34 +1,59 @@
-# Current Session: Batch Segmentation for Groq Rate Limiting
+# Current Session: Batch Segmentation & Rate Limit Handling
 
 Last Updated: 2026-01-15
 
 ## What Was Done
 
-### Implemented Batch Segmentation
-Reduced Groq API calls by 10x by batching multiple songs per LLM call.
+### 1. Batch Segmentation (10x fewer API calls)
+Reduced Groq API calls by batching multiple songs per LLM request.
 
-**Impact:**
-- 100 songs now requires 10 Groq calls instead of 100
-- ~26% token savings from shared prompt overhead
-- No dashboard changes needed (SSE events unchanged)
+**How it works:**
+- Phase 1: Batch all tracks into groups of 10, segment via single LLM call each
+- Phase 2: Process each track using cached segmentation results
 
 **Files Modified:**
+- `src/segmenter.py` - Added `segment_lyrics_batch()`, batch prompt, parsing
+- `src/pipeline.py` - Two-phase processing with segmentation cache
+- `src/config.py` - Added `ENABLE_BATCH_SEGMENTATION = True`
 
-`src/segmenter.py`:
-- Added `BatchedSongResult` and `BatchSegmentationResult` dataclasses
-- Added `BATCHED_SEGMENTATION_PROMPT` template for multi-song format
-- Added `_build_batched_prompt()` function
-- Added `_parse_batched_response()` function with per-song error isolation
-- Added `segment_lyrics_batch()` async function
-- Updated `_call_groq()` and `_call_together()` to accept `max_tokens` parameter
+### 2. Graceful Rate Limit Handling
+Instead of blocking for 5+ minutes on 429 errors, pipeline now exits immediately with retry info.
 
-`src/config.py`:
-- Added `ENABLE_BATCH_SEGMENTATION = True` toggle
+**How it works:**
+- Catches `GroqRateLimitError` and extracts `retry-after` header
+- Returns immediately with `retry_after_seconds` in result
+- Pipeline/API emits friendly message with exact retry time
 
-`src/pipeline.py`:
-- Added Phase 1: Batch segmentation before track loop
-- Modified `process_track()` to accept optional `segmentation_cache` parameter
-- Updated `run_pipeline()` for two-phase processing
+**Files Modified:**
+- `src/segmenter.py` - Added `retry_after_seconds` to result dataclasses
+- `src/pipeline.py` - Check for rate limit and exit gracefully
+- `api/services/pipeline_runner.py` - Emit `rate_limited` SSE event
+
+### 3. API Batch Segmentation
+Updated the API pipeline runner to use batch segmentation like the CLI.
+
+**New SSE Events:**
+- `batch_segmentation_started` - Phase 1 begins
+- `batch_segmentation_progress` - Batch X/Y complete
+- `batch_segmentation_complete` - All segmentation cached
+- `rate_limited` - Hit API limit (includes `retry_after_seconds`)
+
+**Files Modified:**
+- `api/services/pipeline_runner.py` - Full batch segmentation support
+- `api/routes/pipeline.py` - Updated SSE event documentation
+
+### 4. Dashboard Updates (orin-dashboard repo)
+Frontend now handles all new events with proper UI.
+
+**Features:**
+- "Segmenting..." state during batch segmentation
+- "Rate Limited" state with yellow warning box
+- Live countdown timer showing time until retry
+- "Ready to retry!" message when countdown reaches zero
+
+**Files Modified:**
+- `src/pages/Pipeline.tsx` - New states, event handlers, countdown UI
+- `src/api/types.ts` - Updated PipelineEvent type
 
 ## Architecture
 
@@ -39,33 +64,36 @@ Phase 1 - Batch Segmentation:
     2. Filter valid tracks (≥4 lines)
     3. ONE Groq call → segments for all 10
     4. Cache results by track_id
+    → SSE: batch_segmentation_progress
 
 Phase 2 - Per-Track Processing:
   For each track:
-    1. Get cached segmentation (or call LLM if not batched)
+    1. Get cached segmentation (skip LLM call)
     2. Download audio
     3. Check version match
     4. Slice → Upload → Embed segments
     5. Index to Qdrant
-    → SSE events unchanged
+    → SSE: track_start, track_complete
+
+Rate Limit Hit:
+  → SSE: rate_limited (with retry_after_seconds)
+  → Pipeline stops gracefully
+  → Dashboard shows countdown timer
 ```
 
-### Graceful Rate Limit Handling
-When Groq returns a 429 rate limit error:
-- Returns immediately (doesn't block waiting)
-- Shows friendly message: "Rate limited by LLM provider. Please try again in Xm Ys"
-- Exits cleanly so user knows when to retry
+## Testing
 
-**Implementation:**
-- Added `retry_after_seconds` field to `SegmentationResult` and `BatchSegmentationResult`
-- Catches `GroqRateLimitError` and extracts `retry-after` header
-- Pipeline checks for rate limit and stops gracefully with the retry time
+Once Groq rate limit resets, test with:
+```bash
+# CLI
+python -m src.cli --test 10
 
-## Next Steps
-- Test with `python -m src.cli --test 10` when rate limit resets (~16 minutes)
-- Can add Together.ai as backup provider in `LLM_PROVIDERS` config
+# API (start server first)
+uvicorn api.main:app --reload
+# Then trigger from dashboard
+```
 
 ## Context Notes
 - Batch size: 10 songs (configurable via `BATCH_SIZE_LLM`)
-- Can disable batching via `ENABLE_BATCH_SEGMENTATION = False`
-- Fallback: if no cache hit, calls `segment_lyrics()` directly
+- Can disable batching: `ENABLE_BATCH_SEGMENTATION = False`
+- Groq free tier: 100k tokens/day limit
